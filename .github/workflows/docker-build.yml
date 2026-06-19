@@ -1,21 +1,55 @@
-name: Build and Push Qwen CustomVoice Docker Image
+name: Build and Push Qwen Voice Docker Image
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - voice-fixed-versions
-    paths:
-      - ".github/workflows/docker-build.yml"
-      - "start-qwen-voice-with-tunnels.sh"
-      - "versions/qwen-customvoice/**"
+    inputs:
+      variant:
+        description: "Image variant to build"
+        required: true
+        default: "customvoice"
+        type: choice
+        options:
+          - customvoice
+          - base
+          - voicedesign
+          - faster-customvoice
 
 jobs:
   docker:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Resolve selected variant
+        id: variant
+        shell: bash
+        run: |
+          case "${{ inputs.variant }}" in
+            customvoice)
+              echo "dockerfile=versions/qwen-customvoice/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "tag=customvoice-1.7b" >> "$GITHUB_OUTPUT"
+              echo "cache_scope=customvoice" >> "$GITHUB_OUTPUT"
+              ;;
+            base)
+              echo "dockerfile=versions/qwen-base/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "tag=base-1.7b" >> "$GITHUB_OUTPUT"
+              echo "cache_scope=base" >> "$GITHUB_OUTPUT"
+              ;;
+            voicedesign)
+              echo "dockerfile=versions/qwen-voicedesign/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "tag=voicedesign-1.7b" >> "$GITHUB_OUTPUT"
+              echo "cache_scope=voicedesign" >> "$GITHUB_OUTPUT"
+              ;;
+            faster-customvoice)
+              echo "dockerfile=versions/faster-customvoice/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "tag=faster-customvoice-1.7b" >> "$GITHUB_OUTPUT"
+              echo "cache_scope=faster-customvoice" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported variant: ${{ inputs.variant }}" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -28,14 +62,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push customvoice-1.7b
+      - name: Build and push selected voice image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: versions/qwen-customvoice/Dockerfile
+          file: ${{ steps.variant.outputs.dockerfile }}
           push: true
           platforms: linux/amd64
           tags: |
-            manuztl/qwen-voice-tunnel:customvoice-1.7b
-          cache-from: type=gha,scope=customvoice
-          cache-to: type=gha,mode=max,scope=customvoice
+            manuztl/qwen-voice-tunnel:${{ steps.variant.outputs.tag }}
+          cache-from: type=gha,scope=${{ steps.variant.outputs.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ steps.variant.outputs.cache_scope }}
