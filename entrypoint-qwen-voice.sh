@@ -29,4 +29,4 @@ if [[ "${ENABLE_CONTAINER_SSH:-true}" == "true" ]]; then
   fi
 fi
 
-exec /usr/local/bin/start-qwen-voice-with-tunnels.sh "$@"
+exec /usr/local/bin/start-qwen-voice-with-tunnels-real.sh "$@"
