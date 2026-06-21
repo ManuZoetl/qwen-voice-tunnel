@@ -4,7 +4,9 @@ USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      openssh-client curl ca-certificates ffmpeg libsndfile1 && \
+      openssh-client openssh-server curl ca-certificates ffmpeg libsndfile1 && \
+    mkdir -p /run/sshd /root/.ssh && \
+    chmod 700 /root/.ssh && \
     rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir \
@@ -26,8 +28,10 @@ ENV TTS_LOCAL_PORT=8091
 ENV ASR_MODEL=Qwen/Qwen3-ASR-0.6B
 ENV ASR_SERVED_MODEL_NAME=qwen3-asr
 ENV ASR_LOCAL_PORT=8092
+ENV ENABLE_CONTAINER_SSH=true
+ENV CONTAINER_SSH_PORT=22
 
-EXPOSE 8091/tcp 8092/tcp
+EXPOSE 22/tcp 8091/tcp 8092/tcp
 
 ENTRYPOINT ["/usr/local/bin/start-faster-customvoice-with-tunnels.sh"]
 CMD []
