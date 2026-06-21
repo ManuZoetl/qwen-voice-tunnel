@@ -8,9 +8,9 @@ RUN apt-get update && \
     chmod 700 /root/.ssh && \
     rm -rf /var/lib/apt/lists/*
 
-COPY start-qwen-voice-with-tunnels.sh /usr/local/bin/start-qwen-voice-with-tunnels.sh
-COPY entrypoint-qwen-voice.sh /usr/local/bin/entrypoint-qwen-voice.sh
-RUN chmod +x /usr/local/bin/start-qwen-voice-with-tunnels.sh /usr/local/bin/entrypoint-qwen-voice.sh
+COPY start-qwen-voice-with-tunnels.sh /usr/local/bin/start-qwen-voice-with-tunnels-real.sh
+COPY entrypoint-qwen-voice.sh /usr/local/bin/start-qwen-voice-with-tunnels.sh
+RUN chmod +x /usr/local/bin/start-qwen-voice-with-tunnels.sh /usr/local/bin/start-qwen-voice-with-tunnels-real.sh
 
 ENV TTS_MODE=voicedesign
 ENV TTS_SERVED_MODEL_NAME=qwen3-tts-voicedesign
