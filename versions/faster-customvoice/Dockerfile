@@ -19,7 +19,7 @@ RUN python3 -m pip install --no-cache-dir \
 COPY versions/faster-customvoice/faster_customvoice_server.py /usr/local/bin/faster_customvoice_server.py
 COPY versions/faster-customvoice/start-faster-customvoice-with-tunnels.sh /usr/local/bin/start-faster-customvoice-with-tunnels.sh
 COPY versions/faster-customvoice/entrypoint-faster-customvoice.sh /usr/local/bin/entrypoint-faster-customvoice.sh
-RUN chmod +x /usr/local/bin/start-faster-customvoice-with-tunnels.sh
+RUN chmod +x /usr/local/bin/start-faster-customvoice-with-tunnels.sh /usr/local/bin/entrypoint-faster-customvoice.sh
 
 ENV JARVIS_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
 ENV JARVIS_TTS_SERVED_MODEL_NAME=qwen3-tts-faster-customvoice
@@ -34,5 +34,5 @@ ENV CONTAINER_SSH_PORT=22
 
 EXPOSE 22/tcp 8091/tcp 8092/tcp
 
-ENTRYPOINT ["/usr/local/bin/start-faster-customvoice-with-tunnels.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint-faster-customvoice.sh"]
 CMD []
