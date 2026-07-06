@@ -28,6 +28,9 @@ SPEAKER_GPU_MEMORY_UTILIZATION="${SPEAKER_GPU_MEMORY_UTILIZATION:-0.55}"
 SPEAKER_MAX_MODEL_LEN="${SPEAKER_MAX_MODEL_LEN:-1024}"
 SPEAKER_MAX_NUM_BATCHED_TOKENS="${SPEAKER_MAX_NUM_BATCHED_TOKENS:-256}"
 SPEAKER_DTYPE="${SPEAKER_DTYPE:-auto}"
+# Prefix caching can help repeated long Speaker prompts, but Qwen3.5 uses experimental Mamba cache handling.
+# Keep it opt-in so weaker/different 20GB GPUs can still start reliably.
+SPEAKER_ENABLE_PREFIX_CACHING="${SPEAKER_ENABLE_PREFIX_CACHING:-false}"
 SPEAKER_STARTUP_TIMEOUT_SECONDS="${SPEAKER_STARTUP_TIMEOUT_SECONDS:-900}"
 SPEAKER_LOG="/workspace/logs/speaker.log"
 
@@ -45,6 +48,7 @@ echo "SPEAKER_REMOTE_PORT=$SPEAKER_REMOTE_PORT"
 echo "SPEAKER_GPU_MEMORY_UTILIZATION=$SPEAKER_GPU_MEMORY_UTILIZATION"
 echo "SPEAKER_MAX_MODEL_LEN=$SPEAKER_MAX_MODEL_LEN"
 echo "SPEAKER_MAX_NUM_BATCHED_TOKENS=$SPEAKER_MAX_NUM_BATCHED_TOKENS"
+echo "SPEAKER_ENABLE_PREFIX_CACHING=$SPEAKER_ENABLE_PREFIX_CACHING"
 echo "SPEAKER_STARTUP_TIMEOUT_SECONDS=$SPEAKER_STARTUP_TIMEOUT_SECONDS"
 
 echo "== Prepare SSH key =="
@@ -81,6 +85,16 @@ for i in $(seq 1 160); do
 done
 
 echo "== Start Speaker LLM on ${SPEAKER_LOCAL_PORT} =="
+SPEAKER_VLLM_EXTRA_ARGS=()
+if [ "$SPEAKER_ENABLE_PREFIX_CACHING" = "true" ]; then
+  SPEAKER_VLLM_EXTRA_ARGS+=(--enable-prefix-caching)
+fi
+if [ -n "${SPEAKER_LIMIT_MM_PER_PROMPT:-}" ]; then
+  SPEAKER_VLLM_EXTRA_ARGS+=(--limit-mm-per-prompt "$SPEAKER_LIMIT_MM_PER_PROMPT")
+fi
+if [ -n "${SPEAKER_SAFETENSORS_LOAD_STRATEGY:-}" ]; then
+  SPEAKER_VLLM_EXTRA_ARGS+=(--safetensors-load-strategy "$SPEAKER_SAFETENSORS_LOAD_STRATEGY")
+fi
 : > "$SPEAKER_LOG"
 nohup vllm serve "$SPEAKER_MODEL" \
   --served-model-name "$SPEAKER_SERVED_MODEL_NAME" \
@@ -91,7 +105,7 @@ nohup vllm serve "$SPEAKER_MODEL" \
   --gpu-memory-utilization "$SPEAKER_GPU_MEMORY_UTILIZATION" \
   --max-num-seqs 1 \
   --max-num-batched-tokens "$SPEAKER_MAX_NUM_BATCHED_TOKENS" \
-  --enable-prefix-caching \
+  "${SPEAKER_VLLM_EXTRA_ARGS[@]}" \
   --download-dir /workspace/huggingface \
   --trust-remote-code \
   --api-key "$VLLM_API_KEY" \
