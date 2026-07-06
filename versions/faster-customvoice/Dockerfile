@@ -1,4 +1,4 @@
-FROM vllm/vllm-omni:v0.22.0
+FROM vllm/vllm-openai:latest
 
 USER root
 
@@ -28,7 +28,6 @@ ENV JARVIS_TTS_DEFAULT_LANGUAGE=German
 ENV TTS_LOCAL_PORT=8091
 ENV TTS_REMOTE_PORT=18082
 
-# ASR is external now. The old ASR tunnel slot is reused by the Speaker LLM.
 ENV SPEAKER_MODEL=nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8
 ENV SPEAKER_SERVED_MODEL_NAME=jarvis-speaker
 ENV SPEAKER_LOCAL_PORT=8000
