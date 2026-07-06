@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-echo "=== Qwen Voice Tunnel Starter ==="
+echo "=== Qwen Voice + Speaker Tunnel Starter ==="
 
 : "${VLLM_API_KEY:?VLLM_API_KEY missing}"
 : "${RUNPOD_TUNNEL_PRIVATE_KEY_B64:?RUNPOD_TUNNEL_PRIVATE_KEY_B64 missing}"
@@ -14,14 +14,26 @@ export HF_HUB_CACHE="${HF_HUB_CACHE:-/workspace/huggingface}"
 
 VPS_PORT="${VPS_PORT:-22}"
 
-ASR_LOCAL_PORT="${ASR_LOCAL_PORT:-8000}"
+# Local services inside the RunPod container.
+# ASR has been moved out to Groq, so the old ASR tunnel slot is now used by the Speaker LLM.
+SPEAKER_LOCAL_PORT="${SPEAKER_LOCAL_PORT:-8000}"
 TTS_LOCAL_PORT="${TTS_LOCAL_PORT:-8091}"
 
-ASR_REMOTE_PORT="${ASR_REMOTE_PORT:-18081}"
+# Remote VPS ports. Keep SPEAKER_REMOTE_PORT on the former ASR_REMOTE_PORT so the existing
+# asr.arbitraiq.com nginx tunnel target can be reused without changing public DNS/nginx.
+SPEAKER_REMOTE_PORT="${SPEAKER_REMOTE_PORT:-${ASR_REMOTE_PORT:-18081}}"
 TTS_REMOTE_PORT="${TTS_REMOTE_PORT:-18082}"
 
 DEFAULT_VOICE_FILE="${DEFAULT_VOICE_FILE:-/workspace/jarvis_reference.wav}"
 DEFAULT_VOICE_NAME="${DEFAULT_VOICE_NAME:-jarvis_main}"
+
+# Speaker LLM defaults. This process is only the low-latency persona/dialog layer.
+SPEAKER_MODEL="${SPEAKER_MODEL:-nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8}"
+SPEAKER_SERVED_MODEL_NAME="${SPEAKER_SERVED_MODEL_NAME:-jarvis-speaker}"
+SPEAKER_GPU_MEMORY_UTILIZATION="${SPEAKER_GPU_MEMORY_UTILIZATION:-0.20}"
+SPEAKER_MAX_MODEL_LEN="${SPEAKER_MAX_MODEL_LEN:-2048}"
+SPEAKER_MAX_NUM_BATCHED_TOKENS="${SPEAKER_MAX_NUM_BATCHED_TOKENS:-512}"
+SPEAKER_DTYPE="${SPEAKER_DTYPE:-auto}"
 
 case "$TTS_MODE" in
   base)
@@ -53,6 +65,10 @@ echo "== Mode =="
 echo "TTS_MODE=$TTS_MODE"
 echo "TTS_MODEL=$TTS_MODEL"
 echo "TTS_SERVED_MODEL_NAME=$TTS_SERVED_MODEL_NAME"
+echo "SPEAKER_MODEL=$SPEAKER_MODEL"
+echo "SPEAKER_SERVED_MODEL_NAME=$SPEAKER_SERVED_MODEL_NAME"
+echo "SPEAKER_LOCAL_PORT=$SPEAKER_LOCAL_PORT"
+echo "SPEAKER_REMOTE_PORT=$SPEAKER_REMOTE_PORT"
 
 echo "== Prepare SSH key =="
 echo "$RUNPOD_TUNNEL_PRIVATE_KEY_B64" | base64 -d > /root/.ssh/runpod_tunnel_key
@@ -61,11 +77,13 @@ chmod 600 /root/.ssh/runpod_tunnel_key
 echo "== Add VPS host key =="
 ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> /root/.ssh/known_hosts 2>/dev/null || true
 
-echo "== Stop old Qwen voice processes =="
+echo "== Stop old voice/speaker processes =="
 pkill -9 -f "Qwen3-ASR" || true
 pkill -9 -f "qwen3-asr" || true
 pkill -9 -f "Qwen3-TTS" || true
 pkill -9 -f "qwen3-tts" || true
+pkill -9 -f "Nemotron" || true
+pkill -9 -f "jarvis-speaker" || true
 pkill -9 -f "StageEngineCoreProc" || true
 sleep 8
 
@@ -133,38 +151,38 @@ else
   echo "Voice upload is only used for Base clone mode."
 fi
 
-echo "== Start ASR on ${ASR_LOCAL_PORT} =="
-nohup vllm serve Qwen/Qwen3-ASR-0.6B \
-  --served-model-name qwen3-asr \
+echo "== Start Speaker LLM on ${SPEAKER_LOCAL_PORT} =="
+nohup vllm serve "$SPEAKER_MODEL" \
+  --served-model-name "$SPEAKER_SERVED_MODEL_NAME" \
   --host 0.0.0.0 \
-  --port "$ASR_LOCAL_PORT" \
-  --dtype bfloat16 \
-  --max-model-len 1024 \
-  --gpu-memory-utilization 0.18 \
+  --port "$SPEAKER_LOCAL_PORT" \
+  --dtype "$SPEAKER_DTYPE" \
+  --max-model-len "$SPEAKER_MAX_MODEL_LEN" \
+  --gpu-memory-utilization "$SPEAKER_GPU_MEMORY_UTILIZATION" \
   --max-num-seqs 1 \
-  --max-num-batched-tokens 1024 \
+  --max-num-batched-tokens "$SPEAKER_MAX_NUM_BATCHED_TOKENS" \
   --download-dir /workspace/huggingface \
   --trust-remote-code \
   --api-key "$VLLM_API_KEY" \
-  > /workspace/logs/asr.log 2>&1 &
+  > /workspace/logs/speaker.log 2>&1 &
 
-echo "== Wait for ASR =="
-for i in $(seq 1 80); do
-  if curl -sS "http://127.0.0.1:${ASR_LOCAL_PORT}/v1/models" -H "Authorization: Bearer $VLLM_API_KEY" >/dev/null 2>&1; then
-    echo "ASR ready"
+echo "== Wait for Speaker LLM =="
+for i in $(seq 1 120); do
+  if curl -sS "http://127.0.0.1:${SPEAKER_LOCAL_PORT}/v1/models" -H "Authorization: Bearer $VLLM_API_KEY" >/dev/null 2>&1; then
+    echo "Speaker LLM ready"
     break
   fi
   sleep 3
-  if [ "$i" = "80" ]; then
-    echo "ASR did not become ready."
-    echo "Check: tail -200 /workspace/logs/asr.log"
+  if [ "$i" = "120" ]; then
+    echo "Speaker LLM did not become ready."
+    echo "Check: tail -200 /workspace/logs/speaker.log"
     exit 1
   fi
 done
 
 echo "== Status =="
-echo "-- ASR models --"
-curl -sS "http://127.0.0.1:${ASR_LOCAL_PORT}/v1/models" -H "Authorization: Bearer $VLLM_API_KEY" || true
+echo "-- Speaker models --"
+curl -sS "http://127.0.0.1:${SPEAKER_LOCAL_PORT}/v1/models" -H "Authorization: Bearer $VLLM_API_KEY" || true
 echo ""
 echo "-- TTS models --"
 curl -sS "http://127.0.0.1:${TTS_LOCAL_PORT}/v1/models" -H "Authorization: Bearer $VLLM_API_KEY" || true
@@ -176,12 +194,12 @@ echo "-- GPU --"
 nvidia-smi || true
 
 echo ""
-echo "Voice stack ready."
-echo "ASR internal: http://127.0.0.1:${ASR_LOCAL_PORT}/v1/audio/transcriptions"
+echo "Voice + Speaker stack ready."
+echo "Speaker internal: http://127.0.0.1:${SPEAKER_LOCAL_PORT}/v1/chat/completions"
 echo "TTS internal: http://127.0.0.1:${TTS_LOCAL_PORT}/v1/audio/speech"
 
 echo "== Start reverse SSH tunnels =="
-echo "VPS 127.0.0.1:${ASR_REMOTE_PORT} -> RunPod 127.0.0.1:${ASR_LOCAL_PORT}"
+echo "VPS 127.0.0.1:${SPEAKER_REMOTE_PORT} -> RunPod 127.0.0.1:${SPEAKER_LOCAL_PORT} (asr.arbitraiq.com slot)"
 echo "VPS 127.0.0.1:${TTS_REMOTE_PORT} -> RunPod 127.0.0.1:${TTS_LOCAL_PORT}"
 
 while true; do
@@ -191,7 +209,7 @@ while true; do
     -o ExitOnForwardFailure=yes \
     -o ServerAliveInterval=30 \
     -o ServerAliveCountMax=3 \
-    -R "127.0.0.1:${ASR_REMOTE_PORT}:127.0.0.1:${ASR_LOCAL_PORT}" \
+    -R "127.0.0.1:${SPEAKER_REMOTE_PORT}:127.0.0.1:${SPEAKER_LOCAL_PORT}" \
     -R "127.0.0.1:${TTS_REMOTE_PORT}:127.0.0.1:${TTS_LOCAL_PORT}" \
     "${VPS_USER}@${VPS_HOST}" &
 
@@ -201,8 +219,8 @@ while true; do
   wait "$TUNNEL_PID" || true
   echo "Tunnel disconnected. Reconnecting in 5 seconds..."
 
-  if ! pgrep -f "qwen3-asr|Qwen3-ASR" >/dev/null 2>&1; then
-    echo "ASR process is no longer running. Exiting."
+  if ! pgrep -f "jarvis-speaker|Nemotron" >/dev/null 2>&1; then
+    echo "Speaker LLM process is no longer running. Exiting."
     exit 1
   fi
 
