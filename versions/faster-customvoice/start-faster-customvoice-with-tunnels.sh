@@ -91,6 +91,7 @@ nohup vllm serve "$SPEAKER_MODEL" \
   --gpu-memory-utilization "$SPEAKER_GPU_MEMORY_UTILIZATION" \
   --max-num-seqs 1 \
   --max-num-batched-tokens "$SPEAKER_MAX_NUM_BATCHED_TOKENS" \
+  --enable-prefix-caching \
   --download-dir /workspace/huggingface \
   --trust-remote-code \
   --api-key "$VLLM_API_KEY" \
