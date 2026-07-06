@@ -6,12 +6,9 @@ on:
       variant:
         description: "Image variant to build"
         required: true
-        default: "customvoice"
+        default: "faster-customvoice"
         type: choice
         options:
-          - customvoice
-          - base
-          - voicedesign
           - faster-customvoice
 
 jobs:
@@ -24,21 +21,6 @@ jobs:
         shell: bash
         run: |
           case "${{ inputs.variant }}" in
-            customvoice)
-              echo "dockerfile=versions/qwen-customvoice/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "tag=customvoice-1.7b" >> "$GITHUB_OUTPUT"
-              echo "cache_scope=customvoice" >> "$GITHUB_OUTPUT"
-              ;;
-            base)
-              echo "dockerfile=versions/qwen-base/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "tag=base-1.7b" >> "$GITHUB_OUTPUT"
-              echo "cache_scope=base" >> "$GITHUB_OUTPUT"
-              ;;
-            voicedesign)
-              echo "dockerfile=versions/qwen-voicedesign/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "tag=voicedesign-1.7b" >> "$GITHUB_OUTPUT"
-              echo "cache_scope=voicedesign" >> "$GITHUB_OUTPUT"
-              ;;
             faster-customvoice)
               echo "dockerfile=versions/faster-customvoice/Dockerfile" >> "$GITHUB_OUTPUT"
               echo "tag=faster-customvoice-1.7b" >> "$GITHUB_OUTPUT"
