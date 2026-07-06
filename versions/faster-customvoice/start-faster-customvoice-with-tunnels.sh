@@ -26,6 +26,8 @@ SPEAKER_GPU_MEMORY_UTILIZATION="${SPEAKER_GPU_MEMORY_UTILIZATION:-0.20}"
 SPEAKER_MAX_MODEL_LEN="${SPEAKER_MAX_MODEL_LEN:-2048}"
 SPEAKER_MAX_NUM_BATCHED_TOKENS="${SPEAKER_MAX_NUM_BATCHED_TOKENS:-512}"
 SPEAKER_DTYPE="${SPEAKER_DTYPE:-auto}"
+SPEAKER_STARTUP_TIMEOUT_SECONDS="${SPEAKER_STARTUP_TIMEOUT_SECONDS:-900}"
+SPEAKER_LOG="/workspace/logs/speaker.log"
 
 mkdir -p /workspace/logs /workspace/huggingface /root/.ssh
 chmod 700 /root/.ssh
@@ -38,6 +40,7 @@ echo "SPEAKER_MODEL=$SPEAKER_MODEL"
 echo "SPEAKER_SERVED_MODEL_NAME=$SPEAKER_SERVED_MODEL_NAME"
 echo "SPEAKER_LOCAL_PORT=$SPEAKER_LOCAL_PORT"
 echo "SPEAKER_REMOTE_PORT=$SPEAKER_REMOTE_PORT"
+echo "SPEAKER_STARTUP_TIMEOUT_SECONDS=$SPEAKER_STARTUP_TIMEOUT_SECONDS"
 
 echo "== Prepare SSH key =="
 printf "%s" "${!KEY_ENV_NAME}" | base64 -d > /root/.ssh/runpod_tunnel_key
@@ -66,12 +69,14 @@ for i in $(seq 1 160); do
   sleep 3
   if [ "$i" = "160" ]; then
     echo "Faster CustomVoice TTS did not become ready."
-    echo "Check: tail -200 /workspace/logs/tts-faster-customvoice.log"
+    echo "== TTS log tail =="
+    tail -200 /workspace/logs/tts-faster-customvoice.log || true
     exit 1
   fi
 done
 
 echo "== Start Speaker LLM on ${SPEAKER_LOCAL_PORT} =="
+: > "$SPEAKER_LOG"
 nohup vllm serve "$SPEAKER_MODEL" \
   --served-model-name "$SPEAKER_SERVED_MODEL_NAME" \
   --host 0.0.0.0 \
@@ -84,17 +89,47 @@ nohup vllm serve "$SPEAKER_MODEL" \
   --download-dir /workspace/huggingface \
   --trust-remote-code \
   --api-key "$VLLM_API_KEY" \
-  > /workspace/logs/speaker.log 2>&1 &
+  > "$SPEAKER_LOG" 2>&1 &
+SPEAKER_PID=$!
+echo "Speaker LLM PID: ${SPEAKER_PID}"
 
-for i in $(seq 1 120); do
+echo "== Wait for Speaker LLM =="
+SPEAKER_WAIT_ITERATIONS=$((SPEAKER_STARTUP_TIMEOUT_SECONDS / 3))
+if [ "$SPEAKER_WAIT_ITERATIONS" -lt 1 ]; then
+  SPEAKER_WAIT_ITERATIONS=1
+fi
+
+for i in $(seq 1 "$SPEAKER_WAIT_ITERATIONS"); do
+  if ! kill -0 "$SPEAKER_PID" >/dev/null 2>&1; then
+    echo "Speaker LLM process exited before becoming ready."
+    echo "== Speaker log tail =="
+    tail -300 "$SPEAKER_LOG" || true
+    echo "== GPU status =="
+    nvidia-smi || true
+    exit 1
+  fi
+
   if curl -sS "http://127.0.0.1:${SPEAKER_LOCAL_PORT}/v1/models" -H "Authorization: Bearer $VLLM_API_KEY" >/dev/null 2>&1; then
     echo "Speaker LLM ready"
     break
   fi
+
+  if [ $((i % 10)) -eq 0 ]; then
+    echo "Speaker still starting... elapsed=$((i * 3))s"
+    echo "== Speaker log tail =="
+    tail -60 "$SPEAKER_LOG" || true
+    echo "== GPU status =="
+    nvidia-smi || true
+  fi
+
   sleep 3
-  if [ "$i" = "120" ]; then
-    echo "Speaker LLM did not become ready."
-    echo "Check: tail -200 /workspace/logs/speaker.log"
+
+  if [ "$i" = "$SPEAKER_WAIT_ITERATIONS" ]; then
+    echo "Speaker LLM did not become ready within ${SPEAKER_STARTUP_TIMEOUT_SECONDS}s."
+    echo "== Speaker log tail =="
+    tail -300 "$SPEAKER_LOG" || true
+    echo "== GPU status =="
+    nvidia-smi || true
     exit 1
   fi
 done
@@ -139,8 +174,10 @@ while true; do
     echo "Faster CustomVoice TTS process is no longer running. Exiting."
     exit 1
   fi
-  if ! pgrep -f "jarvis-speaker|Nemotron|vllm serve" >/dev/null 2>&1; then
-    echo "Speaker LLM process is no longer running. Exiting."
+  if ! kill -0 "$SPEAKER_PID" >/dev/null 2>&1; then
+    echo "Speaker LLM process is no longer running."
+    echo "== Speaker log tail =="
+    tail -300 "$SPEAKER_LOG" || true
     exit 1
   fi
   sleep 5
